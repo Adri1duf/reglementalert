@@ -50,6 +50,26 @@ export async function deleteIngredient(id: string): Promise<ActionState> {
   return { error: null }
 }
 
+export async function markAllAlertsAsRead(): Promise<ActionState> {
+  const supabase = await createClient()
+  const {
+    data: { user },
+  } = await supabase.auth.getUser()
+
+  if (!user) return { error: 'Not authenticated.' }
+
+  const { error } = await supabase
+    .from('regulatory_alerts')
+    .update({ is_read: true })
+    .eq('user_id', user.id)
+    .eq('is_read', false)
+
+  if (error) return { error: error.message }
+
+  revalidatePath('/dashboard')
+  return { error: null }
+}
+
 export async function markAlertAsRead(id: string): Promise<ActionState> {
   const supabase = await createClient()
   const {

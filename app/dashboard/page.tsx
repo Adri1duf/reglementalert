@@ -2,6 +2,7 @@ import { redirect } from 'next/navigation'
 import { createClient } from '@/lib/supabase/server'
 import IngredientsPanel, { type Ingredient } from './IngredientsPanel'
 import AlertsPanel, { type Alert } from './AlertsPanel'
+import NotificationsDropdown, { type NotifAlert } from './NotificationsDropdown'
 
 type Profile = {
   company_name: string
@@ -63,13 +64,19 @@ export default async function DashboardPage() {
             <span className="text-base font-bold text-neutral-900">ReglementAlert</span>
           </div>
 
-          <div className="flex items-center gap-4">
-            {unreadCount > 0 && (
-              <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-red-100 text-red-700 text-xs font-semibold">
-                <span className="h-1.5 w-1.5 rounded-full bg-red-500 animate-pulse" />
-                {unreadCount} alert{unreadCount !== 1 ? 's' : ''}
-              </span>
-            )}
+          <div className="flex items-center gap-3">
+            <NotificationsDropdown
+              initialAlerts={alertList
+                .filter((a) => !a.is_read)
+                .slice(0, 5)
+                .map((a): NotifAlert => ({
+                  id: a.id,
+                  substance_name: a.substance_name,
+                  source: a.source,
+                  created_at: a.created_at,
+                }))}
+              initialUnreadCount={unreadCount}
+            />
             <form action="/logout" method="POST">
               <button
                 type="submit"
@@ -149,7 +156,9 @@ export default async function DashboardPage() {
         </div>
 
         {/* ── Alerts ──────────────────────────────────────────────────────── */}
-        <AlertsPanel alerts={alertList} />
+        <section id="alerts">
+          <AlertsPanel alerts={alertList} />
+        </section>
 
         {/* ── Ingredients ─────────────────────────────────────────────────── */}
         <IngredientsPanel ingredients={ingredientList} />
