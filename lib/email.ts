@@ -2,6 +2,92 @@ import { Resend } from 'resend'
 
 const resend = new Resend(process.env.RESEND_API_KEY)
 
+// ── Invitation email ───────────────────────────────────────────────────────────
+
+export type InvitationEmailData = {
+  to: string
+  companyName: string
+  inviterEmail: string
+  role: 'admin' | 'member'
+  token: string
+}
+
+export async function sendInvitationEmail(data: InvitationEmailData): Promise<void> {
+  const { to, companyName, inviterEmail, role, token } = data
+  const siteUrl = process.env.NEXT_PUBLIC_SITE_URL ?? 'http://localhost:3000'
+  const acceptUrl = `${siteUrl}/invite/accept?token=${token}`
+  const roleLabel = role === 'admin' ? 'Admin' : 'Member'
+
+  const { error } = await resend.emails.send({
+    from: 'ReglementAlert <onboarding@resend.dev>',
+    to,
+    subject: `You're invited to join ${esc(companyName)} on ReglementAlert`,
+    html: `<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1.0" />
+  <title>You're invited — ReglementAlert</title>
+</head>
+<body style="margin:0;padding:0;background-color:#f4f4f5;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Helvetica,Arial,sans-serif;">
+  <table width="100%" cellpadding="0" cellspacing="0" style="background-color:#f4f4f5;padding:40px 16px;">
+    <tr>
+      <td align="center">
+        <table width="100%" cellpadding="0" cellspacing="0"
+          style="max-width:560px;background-color:#ffffff;border-radius:12px;border:1px solid #e4e4e7;overflow:hidden;">
+          <tr>
+            <td style="padding:28px 40px 24px;border-bottom:1px solid #f4f4f5;">
+              <span style="font-size:18px;font-weight:700;color:#18181b;">ReglementAlert</span>
+            </td>
+          </tr>
+          <tr>
+            <td style="padding:32px 40px;">
+              <p style="margin:0 0 8px;font-size:20px;font-weight:700;color:#18181b;">You're invited!</p>
+              <p style="margin:0 0 24px;font-size:15px;color:#3f3f46;line-height:1.6;">
+                <strong>${esc(inviterEmail)}</strong> has invited you to join
+                <strong>${esc(companyName)}</strong> on ReglementAlert as
+                <strong>${esc(roleLabel)}</strong>.
+              </p>
+              <p style="margin:0 0 24px;font-size:15px;color:#3f3f46;line-height:1.6;">
+                Click the button below to accept the invitation and access your team's
+                regulatory monitoring dashboard.
+              </p>
+              <table width="100%" cellpadding="0" cellspacing="0">
+                <tr>
+                  <td align="center">
+                    <a href="${acceptUrl}"
+                      style="display:inline-block;padding:13px 32px;background-color:#0d9488;color:#ffffff;
+                             font-size:14px;font-weight:600;text-decoration:none;border-radius:8px;">
+                      Accept invitation
+                    </a>
+                  </td>
+                </tr>
+              </table>
+              <p style="margin:24px 0 0;font-size:12px;color:#a1a1aa;text-align:center;">
+                This invitation expires in 7 days. If you didn't expect this email, you can ignore it.
+              </p>
+            </td>
+          </tr>
+          <tr>
+            <td style="padding:20px 40px;border-top:1px solid #f4f4f5;">
+              <p style="margin:0;font-size:12px;color:#a1a1aa;line-height:1.6;">
+                You're receiving this invitation from ReglementAlert on behalf of ${esc(companyName)}.
+              </p>
+            </td>
+          </tr>
+        </table>
+      </td>
+    </tr>
+  </table>
+</body>
+</html>`,
+  })
+
+  if (error) throw new Error(error.message)
+}
+
+// ── Alert email ────────────────────────────────────────────────────────────────
+
 export type AlertEmailData = {
   to: string
   companyName: string

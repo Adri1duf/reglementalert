@@ -1,17 +1,21 @@
 'use client'
 
-import { useState } from 'react'
-import { useRouter } from 'next/navigation'
+import { useState, Suspense } from 'react'
+import { useRouter, useSearchParams } from 'next/navigation'
 import Link from 'next/link'
 import { createClient } from '@/lib/supabase/client'
 
-export default function LoginPage() {
+function LoginForm() {
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
   const [error, setError] = useState<string | null>(null)
   const [loading, setLoading] = useState(false)
   const router = useRouter()
   const supabase = createClient()
+  const searchParams = useSearchParams()
+
+  // After login, redirect to ?from= if present, otherwise dashboard
+  const from = searchParams.get('from') ?? '/dashboard'
 
   async function handleLogin(e: React.FormEvent) {
     e.preventDefault()
@@ -26,7 +30,7 @@ export default function LoginPage() {
       return
     }
 
-    router.push('/dashboard')
+    router.push(from)
     router.refresh()
   }
 
@@ -94,5 +98,13 @@ export default function LoginPage() {
         </p>
       </div>
     </div>
+  )
+}
+
+export default function LoginPage() {
+  return (
+    <Suspense>
+      <LoginForm />
+    </Suspense>
   )
 }
