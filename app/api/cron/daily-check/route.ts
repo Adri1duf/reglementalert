@@ -1,9 +1,11 @@
 import { NextResponse, type NextRequest } from 'next/server'
 import { createAdminClient } from '@/lib/supabase/admin'
 import { fetchSVHCList } from '@/lib/echa-scraper'
+import { fetchEurLexSubstances } from '@/lib/eurlex-scraper'
+import { fetchAnsmSubstances } from '@/lib/ansm-scraper'
 import { sendAlertEmail, type AlertEmailData } from '@/lib/email'
 
-// ── Types ────────────────────────────────────────────────────────────────────
+// ── Types ─────────────────────────────────────────────────────────────────────
 
 type IngredientRow = {
   id: string
@@ -16,9 +18,19 @@ type IngredientRow = {
 type AlertRow = {
   ingredient_id: string
   substance_name: string
+  source: string
 }
 
-// ── Matching helpers (mirrors check-regulations/route.ts) ─────────────────────
+type NormalizedEntry = {
+  name: string
+  casNumber: string | null
+  reason: string | null
+  regulation: string
+  url: string | null
+  source: 'ECHA_SVHC' | 'EUR_LEX' | 'ANSM'
+}
+
+// ── Matching helpers ──────────────────────────────────────────────────────────
 
 function normaliseCas(cas: string): string {
   return cas.trim().toLowerCase()
@@ -43,13 +55,34 @@ export async function GET(request: NextRequest) {
   }
 
   const started = Date.now()
-  console.log('[daily-check] Starting daily ECHA regulation check')
+  console.log('[daily-check] Starting daily regulatory check (ECHA + EUR-Lex + ANSM)')
 
   const admin = createAdminClient()
 
-  // ── 1. Fetch the SVHC list once — shared across all users ─────────────────
-  const svhcList = await fetchSVHCList()
-  console.log(`[daily-check] Loaded ${svhcList.length} SVHC substances`)
+  // ── 1. Fetch all regulatory sources in parallel ────────────────────────────
+  const [svhcList, eurlexList, ansmList] = await Promise.all([
+    fetchSVHCList(),
+    fetchEurLexSubstances(),
+    fetchAnsmSubstances(),
+  ])
+
+  console.log(
+    `[daily-check] Loaded ${svhcList.length} ECHA, ` +
+      `${eurlexList.length} EUR-Lex, ${ansmList.length} ANSM substances`
+  )
+
+  const allEntries: NormalizedEntry[] = [
+    ...svhcList.map((s) => ({
+      name: s.name,
+      casNumber: s.casNumber,
+      reason: s.reason,
+      regulation: 'REACH Candidate List (SVHC)',
+      url: s.echaUrl,
+      source: 'ECHA_SVHC' as const,
+    })),
+    ...eurlexList.map((e) => ({ ...e, source: 'EUR_LEX' as const })),
+    ...ansmList.map((e) => ({ ...e, source: 'ANSM' as const })),
+  ]
 
   // ── 2. Fetch every monitored ingredient with its owner's profile ───────────
   const { data: allIngredients, error: ingError } = await admin
@@ -73,7 +106,7 @@ export async function GET(request: NextRequest) {
   } = await admin.auth.admin.listUsers({ perPage: 1000 })
   const emailMap = new Map(users.map((u) => [u.id, u.email ?? '']))
 
-  // ── 4. Group ingredients by user ─────────────────────────────────────────
+  // ── 4. Group ingredients by user ──────────────────────────────────────────
   const byUser = new Map<string, IngredientRow[]>()
   for (const row of allIngredients) {
     const list = byUser.get(row.user_id) ?? []
@@ -101,51 +134,52 @@ export async function GET(request: NextRequest) {
     )
 
     try {
-      // Batch-fetch all existing SVHC alerts for this user (avoids N×M duplicate-check queries)
+      // Batch-fetch all existing alerts for this user across all sources
       const { data: existingAlerts } = await admin
         .from('regulatory_alerts')
-        .select('ingredient_id, substance_name')
+        .select('ingredient_id, substance_name, source')
         .eq('user_id', userId)
-        .eq('source', 'ECHA_SVHC')
         .returns<AlertRow[]>()
 
       const existingKeys = new Set(
-        (existingAlerts ?? []).map((a) => `${a.ingredient_id}::${a.substance_name}`)
+        (existingAlerts ?? []).map((a) => `${a.ingredient_id}::${a.substance_name}::${a.source}`)
       )
 
-      // Cross-reference ingredients against the SVHC list
+      // Cross-reference all ingredients against all regulatory sources
       const rowsToInsert: object[] = []
       const newAlerts: AlertEmailData['alerts'] = []
 
       for (const ingredient of ingredients) {
-        for (const svhc of svhcList) {
-          const casBothPresent = ingredient.cas_number && svhc.casNumber
+        for (const entry of allEntries) {
+          const casBothPresent = ingredient.cas_number && entry.casNumber
           const casMatch =
             casBothPresent &&
-            normaliseCas(ingredient.cas_number!) === normaliseCas(svhc.casNumber!)
-          const nameMatch = !casMatch && namesOverlap(ingredient.ingredient_name, svhc.name)
+            normaliseCas(ingredient.cas_number!) === normaliseCas(entry.casNumber!)
+          const nameMatch = !casMatch && namesOverlap(ingredient.ingredient_name, entry.name)
 
           if (!casMatch && !nameMatch) continue
 
-          const key = `${ingredient.id}::${svhc.name}`
+          const key = `${ingredient.id}::${entry.name}::${entry.source}`
           if (existingKeys.has(key)) continue // already alerted
+          existingKeys.add(key) // prevent duplicates within this run
 
           rowsToInsert.push({
             user_id: userId,
             ingredient_id: ingredient.id,
-            substance_name: svhc.name,
-            cas_number: svhc.casNumber,
-            source: 'ECHA_SVHC',
-            regulation: 'REACH Candidate List (SVHC)',
-            reason: svhc.reason,
-            echa_url: svhc.echaUrl,
+            substance_name: entry.name,
+            cas_number: entry.casNumber,
+            source: entry.source,
+            regulation: entry.regulation,
+            reason: entry.reason,
+            echa_url: entry.url,
           })
 
           newAlerts.push({
-            substanceName: svhc.name,
-            casNumber: svhc.casNumber,
+            substanceName: entry.name,
+            casNumber: entry.casNumber,
             ingredientName: ingredient.ingredient_name,
-            reason: svhc.reason,
+            reason: entry.reason,
+            source: entry.source,
           })
         }
       }
@@ -158,14 +192,10 @@ export async function GET(request: NextRequest) {
 
         if (insertError) {
           // UNIQUE violation means a concurrent run beat us — safe to ignore
-          console.error(
-            `[daily-check] Insert error for ${userEmail}: ${insertError.message}`
-          )
+          console.error(`[daily-check] Insert error for ${userEmail}: ${insertError.message}`)
         } else {
           totalAlertsCreated += rowsToInsert.length
-          console.log(
-            `[daily-check] Inserted ${rowsToInsert.length} alert(s) for ${userEmail}`
-          )
+          console.log(`[daily-check] Inserted ${rowsToInsert.length} alert(s) for ${userEmail}`)
         }
       } else {
         console.log(`[daily-check] No new matches for ${userEmail}`)

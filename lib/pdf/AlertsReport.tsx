@@ -32,8 +32,6 @@ type Props = {
 
 const C = {
   teal: '#0d9488',
-  amber: '#d97706',
-  amberBg: '#fef3c7',
   neutral900: '#171717',
   neutral700: '#404040',
   neutral500: '#737373',
@@ -44,7 +42,35 @@ const C = {
   white: '#ffffff',
 } as const
 
-const ECHA_FALLBACK = 'https://echa.europa.eu/candidate-list-table'
+// ── Source helpers ─────────────────────────────────────────────────────────────
+
+type SourceColors = { color: string; backgroundColor: string; label: string; fallbackUrl: string }
+
+function sourceInfo(source: string): SourceColors {
+  if (source === 'EUR_LEX') {
+    return {
+      color: '#1d4ed8',
+      backgroundColor: '#dbeafe',
+      label: 'EUR-LEX',
+      fallbackUrl: 'https://eur-lex.europa.eu/legal-content/EN/TXT/?uri=CELEX:32009R1223',
+    }
+  }
+  if (source === 'ANSM') {
+    return {
+      color: '#be123c',
+      backgroundColor: '#ffe4e6',
+      label: 'ANSM',
+      fallbackUrl: 'https://ansm.sante.fr/rechercher?category=cosmetiques',
+    }
+  }
+  // Default: ECHA_SVHC
+  return {
+    color: '#b45309',
+    backgroundColor: '#fef3c7',
+    label: 'ECHA SVHC',
+    fallbackUrl: 'https://echa.europa.eu/candidate-list-table',
+  }
+}
 
 // ── Styles ────────────────────────────────────────────────────────────────────
 
@@ -180,11 +206,10 @@ const s = StyleSheet.create({
     color: C.neutral900,
     marginRight: 6,
   },
+  // Base badge layout — color/backgroundColor injected at render time via sourceInfo()
   badge: {
     fontSize: 7,
     fontFamily: 'Helvetica-Bold',
-    color: C.amber,
-    backgroundColor: C.amberBg,
     paddingLeft: 4,
     paddingRight: 4,
     paddingTop: 2,
@@ -254,6 +279,17 @@ const s = StyleSheet.create({
 
 export default function AlertsReport({ alerts, companyName, date }: Props) {
   const unreadCount = alerts.filter((a) => !a.is_read).length
+  const echaCount = alerts.filter((a) => a.source === 'ECHA_SVHC').length
+  const eurlexCount = alerts.filter((a) => a.source === 'EUR_LEX').length
+  const ansmCount = alerts.filter((a) => a.source === 'ANSM').length
+  const activeSourceCount = [echaCount, eurlexCount, ansmCount].filter((n) => n > 0).length
+  const sourceBreakdown = [
+    echaCount > 0 ? `${echaCount} ECHA` : '',
+    eurlexCount > 0 ? `${eurlexCount} EUR-Lex` : '',
+    ansmCount > 0 ? `${ansmCount} ANSM` : '',
+  ]
+    .filter(Boolean)
+    .join(' · ')
 
   return (
     <Document
@@ -288,8 +324,10 @@ export default function AlertsReport({ alerts, companyName, date }: Props) {
             <Text style={s.summaryLabel}>UNREAD</Text>
           </View>
           <View style={s.summaryCardLast}>
-            <Text style={s.summaryValue}>1</Text>
-            <Text style={s.summaryLabel}>SOURCE (ECHA SVHC)</Text>
+            <Text style={s.summaryValue}>{activeSourceCount}</Text>
+            <Text style={s.summaryLabel}>
+              {activeSourceCount === 1 ? 'SOURCE' : 'SOURCES'} ({sourceBreakdown})
+            </Text>
           </View>
         </View>
 
@@ -304,7 +342,8 @@ export default function AlertsReport({ alerts, companyName, date }: Props) {
             month: 'short',
             year: 'numeric',
           })
-          const echaHref = alert.echa_url ?? ECHA_FALLBACK
+          const src = sourceInfo(alert.source)
+          const href = alert.echa_url ?? src.fallbackUrl
 
           return (
             <View
@@ -321,7 +360,9 @@ export default function AlertsReport({ alerts, companyName, date }: Props) {
               <View style={s.alertBody}>
                 <View style={s.titleRow}>
                   <Text style={s.substanceName}>{alert.substance_name}</Text>
-                  <Text style={s.badge}>ECHA SVHC</Text>
+                  <Text style={[s.badge, { color: src.color, backgroundColor: src.backgroundColor }]}>
+                    {src.label}
+                  </Text>
                 </View>
 
                 {alert.cas_number && (
@@ -343,8 +384,8 @@ export default function AlertsReport({ alerts, companyName, date }: Props) {
 
                 <View style={s.metaRow}>
                   <Text style={s.metaDate}>{dateStr}</Text>
-                  <Link src={echaHref} style={s.echaLink}>
-                    View on ECHA
+                  <Link src={href} style={s.echaLink}>
+                    {`View on ${src.label}`}
                   </Link>
                 </View>
               </View>

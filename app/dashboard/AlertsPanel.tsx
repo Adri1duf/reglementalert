@@ -18,7 +18,9 @@ export type Alert = {
 }
 
 type CheckResult = {
-  svhcCount: number
+  echaCount: number
+  eurlexCount: number
+  ansmCount: number
   ingredientsChecked: number
   alertsCreated: number
   duplicatesSkipped: number
@@ -57,8 +59,9 @@ export default function AlertsPanel({ alerts }: { alerts: Alert[] }) {
         )
         router.refresh()
       } else {
+        const total = (data.echaCount ?? 0) + (data.eurlexCount ?? 0) + (data.ansmCount ?? 0)
         showToast(
-          `No new matches — ${data.ingredientsChecked} ingredients checked against ${data.svhcCount} SVHCs`,
+          `No new matches — ${data.ingredientsChecked} ingredients checked against ${total} regulatory entries`,
           'success'
         )
       }
@@ -196,7 +199,7 @@ export default function AlertsPanel({ alerts }: { alerts: Alert[] }) {
               <p className="text-sm font-semibold text-neutral-900">No alerts yet</p>
               <p className="mt-1 text-xs text-neutral-400 max-w-xs">
                 Click &ldquo;Check ECHA now&rdquo; to cross-reference your ingredients against
-                the SVHC Candidate List.
+                ECHA SVHC, EUR-Lex, and ANSM regulatory databases.
               </p>
             </div>
           ) : (
@@ -225,9 +228,7 @@ export default function AlertsPanel({ alerts }: { alerts: Alert[] }) {
                       <span className="text-sm font-semibold text-neutral-900 leading-snug">
                         {alert.substance_name}
                       </span>
-                      <span className="px-1.5 py-0.5 text-[10px] font-semibold rounded-md bg-amber-100 text-amber-700 uppercase tracking-wide">
-                        ECHA SVHC
-                      </span>
+                      <SourceBadge source={alert.source} />
                       {!alert.is_read && (
                         <span className="px-1.5 py-0.5 text-[10px] font-semibold rounded-md bg-red-100 text-red-600 uppercase tracking-wide">
                           New
@@ -261,12 +262,12 @@ export default function AlertsPanel({ alerts }: { alerts: Alert[] }) {
                         })}
                       </span>
                       <a
-                        href={alert.echa_url ?? 'https://echa.europa.eu/candidate-list-table'}
+                        href={alert.echa_url ?? sourceFallbackUrl(alert.source)}
                         target="_blank"
                         rel="noopener noreferrer"
                         className="text-[11px] text-teal-600 hover:text-teal-700 font-medium"
                       >
-                        View on ECHA ↗
+                        {sourceViewLabel(alert.source)} ↗
                       </a>
                     </div>
                   </div>
@@ -298,4 +299,45 @@ export default function AlertsPanel({ alerts }: { alerts: Alert[] }) {
       </div>
     </>
   )
+}
+
+// ── Source helpers ─────────────────────────────────────────────────────────────
+
+function SourceBadge({ source }: { source: string }) {
+  if (source === 'EUR_LEX') {
+    return (
+      <span className="px-1.5 py-0.5 text-[10px] font-semibold rounded-md bg-blue-100 text-blue-700 uppercase tracking-wide">
+        EUR-Lex
+      </span>
+    )
+  }
+  if (source === 'ANSM') {
+    return (
+      <span className="px-1.5 py-0.5 text-[10px] font-semibold rounded-md bg-rose-100 text-rose-700 uppercase tracking-wide">
+        ANSM
+      </span>
+    )
+  }
+  // Default: ECHA_SVHC
+  return (
+    <span className="px-1.5 py-0.5 text-[10px] font-semibold rounded-md bg-amber-100 text-amber-700 uppercase tracking-wide">
+      ECHA SVHC
+    </span>
+  )
+}
+
+function sourceFallbackUrl(source: string): string {
+  if (source === 'EUR_LEX') {
+    return 'https://eur-lex.europa.eu/legal-content/EN/TXT/?uri=CELEX:32009R1223'
+  }
+  if (source === 'ANSM') {
+    return 'https://ansm.sante.fr/rechercher?category=cosmetiques'
+  }
+  return 'https://echa.europa.eu/candidate-list-table'
+}
+
+function sourceViewLabel(source: string): string {
+  if (source === 'EUR_LEX') return 'View on EUR-Lex'
+  if (source === 'ANSM') return 'View on ANSM'
+  return 'View on ECHA'
 }
