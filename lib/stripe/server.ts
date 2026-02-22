@@ -26,3 +26,15 @@ export function ingredientLimit(
 export function isActiveSubscription(status: string | null): boolean {
   return status === 'active' || status === 'trialing'
 }
+
+// Max documents per plan (null = unlimited, number = max)
+// Free tier gets 5; Starter 20; Pro unlimited
+export function documentLimit(
+  plan: string | null,
+  status: string | null
+): number | null {
+  const active = status === 'active' || status === 'trialing'
+  if (active && plan === 'pro') return null
+  if (active && plan === 'starter') return 20
+  return 5 // free tier
+}
